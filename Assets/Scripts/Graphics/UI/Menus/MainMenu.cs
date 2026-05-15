@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using DLS.Description;
 using DLS.Game;
@@ -83,12 +84,21 @@ namespace DLS.Graphics
 		static bool authOpInProgress;
 		static string authStatusMessage;
 
+		enum AccountTab { SignIn, History }
+		static AccountTab activeAccountTab = AccountTab.SignIn;
+		static List<CloudProjectSharing.ShareHistoryEntry>    shareHistory;
+		static List<CloudProjectSharing.DownloadHistoryEntry> downloadHistory;
+		static bool historyLoading;
+		static readonly UIHandle ID_ShareHistoryScroll    = new("MainMenu_ShareHistoryScroll");
+		static readonly UIHandle ID_DownloadHistoryScroll = new("MainMenu_DownloadHistoryScroll");
+
 		static ProjectDescription[] allProjectDescriptions;
 		static string[] allProjectNames;
 		static (bool compatible, string message)[] projectCompatibilities;
 
 		static int selectedProjectIndex;
 		static string notificationMessage;
+		static string notificationCopyText; // when set, a Copy button appears in the notification popup
 
 		static readonly string authorString = "Created by: Sebastian Lague";
 		static readonly string versionString = $"Version: {Main.DLSVersion} ({Main.LastUpdatedString})";
@@ -309,9 +319,10 @@ namespace DLS.Graphics
 			}
 		}
 
-		static void ShowNotification(string message)
+		static void ShowNotification(string message, string copyText = null)
 		{
 			notificationMessage = message;
+			notificationCopyText = copyText;
 			activePopup = PopupKind.Notification;
 		}
 
@@ -325,14 +336,29 @@ namespace DLS.Graphics
 			using (UI.BeginBoundsScope(true))
 			{
 				Draw.ID panelID = UI.ReservePanel();
-
 				ButtonTheme buttonTheme = theme.MainMenuButtonTheme;
+
 				UI.DrawText(notificationMessage, buttonTheme.font, buttonTheme.fontSize, UI.Centre, Anchor.Centre, Color.white);
 
 				Vector2 buttonPos = UI.PrevBounds.BottomLeft + Vector2.down * DrawSettings.VerticalButtonSpacing;
-				if (UI.Button("OK", buttonTheme, buttonPos + Vector2.right * UI.PrevBounds.Width * 0.5f, new Vector2(UI.PrevBounds.Width * 0.3f, 0), true, false, true) ||
-				    KeyboardShortcuts.CancelShortcutTriggered || KeyboardShortcuts.ConfirmShortcutTriggered)
+				float totalWidth  = UI.PrevBounds.Width;
+
+				bool hasCopy = !string.IsNullOrEmpty(notificationCopyText);
+				int btnCount  = hasCopy ? 2 : 1;
+
+				(Vector2 size, Vector2 centre) okLayout   = UILayoutHelper.HorizontalLayout(btnCount, hasCopy ? 1 : 0, buttonPos + Vector2.right * totalWidth * 0.5f, new Vector2(totalWidth, 5));
+				bool okClicked = UI.Button("OK", buttonTheme, okLayout.centre, new Vector2(okLayout.size.x, 0), true, false, true);
+
+				if (hasCopy)
 				{
+					(Vector2 size, Vector2 centre) copyLayout = UILayoutHelper.HorizontalLayout(btnCount, 0, buttonPos + Vector2.right * totalWidth * 0.5f, new Vector2(totalWidth, 5));
+					if (UI.Button("COPY CODE", buttonTheme, copyLayout.centre, new Vector2(copyLayout.size.x, 0), true, false, true))
+						InputHelper.CopyToClipboard(notificationCopyText);
+				}
+
+				if (okClicked || (!hasCopy && (KeyboardShortcuts.CancelShortcutTriggered || KeyboardShortcuts.ConfirmShortcutTriggered)))
+				{
+					notificationCopyText = null;
 					activePopup = PopupKind.None;
 				}
 
@@ -345,10 +371,11 @@ namespace DLS.Graphics
 			cloudOpInProgress = true;
 			try
 			{
-				var (success, result) = await CloudProjectSharing.UploadProject(SelectedProjectName);
-				ShowNotification(success
-					? $"Share this code with your friend:\n\n{result}"
-					: "Upload failed: " + result);
+				var (success, shareCode, error) = await CloudProjectSharing.UploadProject(SelectedProjectName);
+				if (success)
+					ShowNotification($"Share this code with your friend:\n\n{shareCode}", copyText: shareCode);
+				else
+					ShowNotification("Upload failed: " + error);
 			}
 			catch (Exception e)
 			{
@@ -365,16 +392,16 @@ namespace DLS.Graphics
 			cloudOpInProgress = true;
 			try
 			{
-				var (success, result, info) = await CloudProjectSharing.DownloadProject(shareCode);
+				var (success, projectName, error, info) = await CloudProjectSharing.DownloadProject(shareCode);
 				if (success)
 				{
 					RefreshLoadedProjects();
 					string by = string.IsNullOrEmpty(info.ownerEmail) ? "anonymous" : info.ownerEmail;
-					ShowNotification($"Imported '{result}' successfully.\nShared by: {by}");
+					ShowNotification($"Imported '{projectName}' successfully.\nShared by: {by}");
 				}
 				else
 				{
-					ShowNotification("Download failed: " + result);
+					ShowNotification("Download failed: " + error);
 				}
 			}
 			catch (Exception e)
@@ -691,27 +718,15 @@ namespace DLS.Graphics
 			float labelGap = fieldSize.y * 0.5f + 1f;
 			const float rowGap = 9f;
 
-			if (DLS.SaveSystem.SupabaseAuth.IsLoggedIn)
+			if (!DLS.SaveSystem.SupabaseAuth.IsLoggedIn)
 			{
-				UI.DrawText("SIGNED IN AS", buttonTheme.font, buttonTheme.fontSize, UI.Centre + Vector2.up * 5, Anchor.Centre, new Color(1, 1, 1, 0.5f));
-				UI.DrawText(DLS.SaveSystem.SupabaseAuth.UserEmail, buttonTheme.font, buttonTheme.fontSize, UI.Centre + Vector2.up * 2, Anchor.Centre, Color.white);
-
-				if (UI.Button("SIGN OUT", buttonTheme, UI.Centre + Vector2.down * 2, new Vector2(fieldWidth * 0.5f, 0), !authOpInProgress, false, true))
-				{
-					DLS.SaveSystem.SupabaseAuth.SignOut();
-					authStatusMessage = null;
-				}
-			}
-			else
-			{
+				// ---- Sign-in / sign-up view ----
 				Vector2 emailPos = UI.Centre + Vector2.up * rowGap * 0.5f;
 				Vector2 passPos  = UI.Centre + Vector2.down * rowGap * 0.5f;
 
-				// Email row
 				UI.DrawText("EMAIL", inputTheme.font, inputTheme.fontSize, emailPos + Vector2.up * labelGap, Anchor.Centre, new Color(1, 1, 1, 0.55f));
 				InputFieldState emailState = UI.InputField(ID_AuthEmailInput, inputTheme, emailPos, fieldSize, "", Anchor.Centre, padding.x, s => s.Length <= 100, false);
 
-				// Password row
 				UI.DrawText("PASSWORD", inputTheme.font, inputTheme.fontSize, passPos + Vector2.up * labelGap, Anchor.Centre, new Color(1, 1, 1, 0.55f));
 				InputFieldState passState = UI.InputField(ID_AuthPasswordInput, inputTheme, passPos, fieldSize, "", Anchor.Centre, padding.x, s => s.Length <= 100, false, maskChar: '*');
 
@@ -729,9 +744,43 @@ namespace DLS.Graphics
 
 				if (!string.IsNullOrEmpty(authStatusMessage))
 				{
-					bool isError = authStatusMessage.StartsWith("Error");
-					Color msgCol = isError ? Color.red : new Color(0.4f, 1f, 0.4f);
+					Color msgCol = authStatusMessage.StartsWith("Error") ? Color.red : new Color(0.4f, 1f, 0.4f);
 					UI.DrawText(authStatusMessage, buttonTheme.font, buttonTheme.fontSize, btnCentre + Vector2.down * 5, Anchor.Centre, msgCol);
+				}
+			}
+			else
+			{
+				// ---- Logged-in view with tabs ----
+				// Tab bar
+				Vector2 tabRegion = UI.Centre + Vector2.up * 13;
+				Vector2 tabSize   = new(fieldWidth, 5);
+				(Vector2 size, Vector2 centre) tabProfile  = UILayoutHelper.HorizontalLayout(2, 0, tabRegion, tabSize);
+				(Vector2 size, Vector2 centre) tabHistory  = UILayoutHelper.HorizontalLayout(2, 1, tabRegion, tabSize);
+
+				if (UI.Button("PROFILE", buttonTheme, tabProfile.centre, new Vector2(tabProfile.size.x, 0), true, false, true))
+					activeAccountTab = AccountTab.SignIn;
+				if (UI.Button("HISTORY", buttonTheme, tabHistory.centre, new Vector2(tabHistory.size.x, 0), true, false, true))
+				{
+					activeAccountTab = AccountTab.History;
+					if (shareHistory == null && !historyLoading) LoadHistory();
+				}
+
+				if (activeAccountTab == AccountTab.SignIn)
+				{
+					UI.DrawText("SIGNED IN AS", buttonTheme.font, buttonTheme.fontSize, UI.Centre + Vector2.up * 7, Anchor.Centre, new Color(1, 1, 1, 0.5f));
+					UI.DrawText(DLS.SaveSystem.SupabaseAuth.UserEmail, buttonTheme.font, buttonTheme.fontSize, UI.Centre + Vector2.up * 4, Anchor.Centre, Color.white);
+
+					if (UI.Button("SIGN OUT", buttonTheme, UI.Centre, new Vector2(fieldWidth * 0.5f, 0), !authOpInProgress, false, true))
+					{
+						DLS.SaveSystem.SupabaseAuth.SignOut();
+						shareHistory    = null;
+						downloadHistory = null;
+						activeAccountTab = AccountTab.SignIn;
+					}
+				}
+				else
+				{
+					DrawHistoryTab(buttonTheme, fieldWidth);
 				}
 			}
 
@@ -740,6 +789,72 @@ namespace DLS.Graphics
 				authStatusMessage = null;
 				BackToMain();
 			}
+		}
+
+		static void DrawHistoryTab(ButtonTheme buttonTheme, float width)
+		{
+			float col = buttonTheme.fontSize;
+			Color dimCol  = new(1, 1, 1, 0.5f);
+			Color headCol = new(1, 1, 1, 0.8f);
+
+			if (historyLoading)
+			{
+				UI.DrawText("Loading...", buttonTheme.font, col, UI.Centre, Anchor.Centre, dimCol);
+				return;
+			}
+
+			// Shares section
+			Vector2 sharesTop = UI.Centre + Vector2.up * 9;
+			UI.DrawText("MY SHARES", buttonTheme.font, col, sharesTop, Anchor.Centre, headCol);
+
+			Vector2 cursor = sharesTop + Vector2.down * 3;
+			if (shareHistory == null || shareHistory.Count == 0)
+			{
+				UI.DrawText("No shares yet.", buttonTheme.font, col, cursor, Anchor.Centre, dimCol);
+			}
+			else
+			{
+				foreach (var entry in shareHistory)
+				{
+					string line = $"{entry.projectName}   code: {entry.shareCode}   downloads: {entry.downloadCount}   {entry.createdAt}";
+					UI.DrawText(line, buttonTheme.font, col * 0.85f, cursor, Anchor.Centre, Color.white);
+					cursor += Vector2.down * 2.5f;
+				}
+			}
+
+			// Downloads section
+			cursor += Vector2.down * 1f;
+			UI.DrawText("MY DOWNLOADS", buttonTheme.font, col, cursor, Anchor.Centre, headCol);
+			cursor += Vector2.down * 3;
+
+			if (downloadHistory == null || downloadHistory.Count == 0)
+			{
+				UI.DrawText("No downloads yet.", buttonTheme.font, col, cursor, Anchor.Centre, dimCol);
+			}
+			else
+			{
+				foreach (var entry in downloadHistory)
+				{
+					string line = $"{entry.projectName}   by: {entry.ownerEmail}   {entry.downloadedAt}";
+					UI.DrawText(line, buttonTheme.font, col * 0.85f, cursor, Anchor.Centre, Color.white);
+					cursor += Vector2.down * 2.5f;
+				}
+			}
+
+			if (UI.Button("REFRESH", buttonTheme, cursor + Vector2.down * 1f, new Vector2(width * 0.35f, 0), !historyLoading, false, true))
+			{
+				shareHistory    = null;
+				downloadHistory = null;
+				LoadHistory();
+			}
+		}
+
+		static async void LoadHistory()
+		{
+			historyLoading = true;
+			shareHistory    = await CloudProjectSharing.FetchMyShares();
+			downloadHistory = await CloudProjectSharing.FetchMyDownloads();
+			historyLoading = false;
 		}
 
 		static async void StartSignIn(string email, string password)
