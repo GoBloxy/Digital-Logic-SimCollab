@@ -21,6 +21,9 @@ namespace DLS.Graphics
 		static AppSettings EditedAppSettings;
 
 		static readonly UIHandle ID_ProjectNameInput = new("MainMenu_ProjectNameInputField");
+		static readonly UIHandle ID_ShareCodeInput = new("MainMenu_ShareCodeInput");
+		static readonly UIHandle ID_AuthEmailInput = new("MainMenu_AuthEmail");
+		static readonly UIHandle ID_AuthPasswordInput = new("MainMenu_AuthPassword");
 		static readonly UIHandle ID_DisplayResolutionWheel = new("MainMenu_DisplayResolutionWheel");
 		static readonly UIHandle ID_FullscreenWheel = new("MainMenu_FullscreenWheel");
 		static readonly UIHandle ID_ProjectsScrollView = new("MainMenu_ProjectsScrollView");
@@ -38,6 +41,7 @@ namespace DLS.Graphics
 			FormatButtonString("New Project"),
 			FormatButtonString("Open Project"),
 			FormatButtonString("Settings"),
+			FormatButtonString("Account"),
 			FormatButtonString("About"),
 			FormatButtonString("Quit")
 		};
@@ -67,6 +71,17 @@ namespace DLS.Graphics
 		static readonly bool[] settingsButtonGroupStates = new bool[settingsButtonGroupNames.Length];
 
 		static readonly bool[] openProjectButtonStates = new bool[openProjectButtonNames.Length];
+
+		static readonly string[] collabButtonNames =
+		{
+			FormatButtonString("Share to Cloud"),
+			FormatButtonString("Get from Code")
+		};
+		static readonly bool[] collabButtonStates = new bool[collabButtonNames.Length];
+
+		static bool cloudOpInProgress;
+		static bool authOpInProgress;
+		static string authStatusMessage;
 
 		static ProjectDescription[] allProjectDescriptions;
 		static string[] allProjectNames;
@@ -112,6 +127,9 @@ namespace DLS.Graphics
 				case MenuScreen.Settings:
 					DrawSettingsScreen();
 					break;
+				case MenuScreen.Account:
+					DrawAccountScreen();
+					break;
 				case MenuScreen.About:
 					DrawAboutScreen();
 					break;
@@ -133,6 +151,9 @@ namespace DLS.Graphics
 					break;
 				case PopupKind.Notification:
 					DrawNotificationPopup();
+					break;
+				case PopupKind.ShareCodeInput:
+					DrawShareCodePopup();
 					break;
 			}
 		}
@@ -170,11 +191,15 @@ namespace DLS.Graphics
 				activeMenuScreen = MenuScreen.Settings;
 				OnSettingsMenuOpened();
 			}
-			else if (buttonIndex == 3) // About
+			else if (buttonIndex == 3) // Account
+			{
+				activeMenuScreen = MenuScreen.Account;
+			}
+			else if (buttonIndex == 4) // About
 			{
 				activeMenuScreen = MenuScreen.About;
 			}
-			else if (buttonIndex == 4 || KeyboardShortcuts.MainMenu_QuitShortcutTriggered) // Quit
+			else if (buttonIndex == 5 || KeyboardShortcuts.MainMenu_QuitShortcutTriggered) // Quit
 			{
 				Quit();
 			}
@@ -227,6 +252,18 @@ namespace DLS.Graphics
 			else if (buttonIndex == openButtonIndex) Main.CreateOrLoadProject(SelectedProjectName, string.Empty);
 			else if (buttonIndex == exportButtonIndex) HandleExportProject();
 			else if (buttonIndex == importButtonIndex) HandleImportProject();
+
+			// ---- Cloud collaboration row ----
+			const int shareButtonIndex = 0;
+			const int getCodeButtonIndex = 1;
+			collabButtonStates[shareButtonIndex] = activePopup == PopupKind.None && compatibleProject && !cloudOpInProgress;
+			collabButtonStates[getCodeButtonIndex] = activePopup == PopupKind.None && !cloudOpInProgress;
+
+			Vector2 collabRowPos = UI.PrevBounds.BottomLeft + Vector2.down * DrawSettings.VerticalButtonSpacing;
+			int collabIndex = UI.HorizontalButtonGroup(collabButtonNames, collabButtonStates, buttonTheme, collabRowPos, UI.PrevBounds.Width, UILayoutHelper.DefaultSpacing, 0, Anchor.TopLeft);
+
+			if (collabIndex == shareButtonIndex) StartShareProject();
+			else if (collabIndex == getCodeButtonIndex) activePopup = PopupKind.ShareCodeInput;
 		}
 
 		static void HandleExportProject()
@@ -297,6 +334,102 @@ namespace DLS.Graphics
 				    KeyboardShortcuts.CancelShortcutTriggered || KeyboardShortcuts.ConfirmShortcutTriggered)
 				{
 					activePopup = PopupKind.None;
+				}
+
+				UI.ModifyPanel(panelID, UI.GetCurrentBoundsScope().Centre, UI.GetCurrentBoundsScope().Size + Vector2.one * 2, ColHelper.MakeCol255(37, 37, 43));
+			}
+		}
+
+		static async void StartShareProject()
+		{
+			cloudOpInProgress = true;
+			try
+			{
+				var (success, result) = await CloudProjectSharing.UploadProject(SelectedProjectName);
+				ShowNotification(success
+					? $"Share this code with your friend:\n\n{result}"
+					: "Upload failed: " + result);
+			}
+			catch (Exception e)
+			{
+				ShowNotification("Upload failed: " + e.Message);
+			}
+			finally
+			{
+				cloudOpInProgress = false;
+			}
+		}
+
+		static async void StartGetFromCode(string shareCode)
+		{
+			cloudOpInProgress = true;
+			try
+			{
+				var (success, result, info) = await CloudProjectSharing.DownloadProject(shareCode);
+				if (success)
+				{
+					RefreshLoadedProjects();
+					string by = string.IsNullOrEmpty(info.ownerEmail) ? "anonymous" : info.ownerEmail;
+					ShowNotification($"Imported '{result}' successfully.\nShared by: {by}");
+				}
+				else
+				{
+					ShowNotification("Download failed: " + result);
+				}
+			}
+			catch (Exception e)
+			{
+				ShowNotification("Download failed: " + e.Message);
+			}
+			finally
+			{
+				cloudOpInProgress = false;
+			}
+		}
+
+		static void DrawShareCodePopup()
+		{
+			DrawSettings.UIThemeDLS theme = DrawSettings.ActiveUITheme;
+
+			UI.StartNewLayer();
+			UI.DrawFullscreenPanel(theme.MenuBackgroundOverlayCol);
+
+			using (UI.BeginBoundsScope(true))
+			{
+				Draw.ID panelID = UI.ReservePanel();
+
+				InputFieldTheme inputTheme = theme.ChipNameInputField;
+				const int maxCodeLength = 60;
+
+				Vector2 charSize = UI.CalculateTextSize("M", inputTheme.fontSize, inputTheme.font);
+				Vector2 padding = new(2, 2);
+				Vector2 inputFieldSize = new Vector2(charSize.x * maxCodeLength * 0.5f, charSize.y) + padding * 2;
+
+				UI.DrawText("Enter share code:", inputTheme.font, inputTheme.fontSize, UI.Centre + Vector2.up * (inputFieldSize.y + 1.5f), Anchor.Centre, Color.white);
+				InputFieldState state = UI.InputField(ID_ShareCodeInput, inputTheme, UI.Centre, inputFieldSize, "", Anchor.Centre, padding.x, s => s.Length <= maxCodeLength, true);
+
+				bool validCode = !string.IsNullOrWhiteSpace(state.text);
+
+				Vector2 buttonsRegionSize = new(inputFieldSize.x, 5);
+				Vector2 buttonsRegionCentre = UILayoutHelper.CalculateCentre(UI.PrevBounds.BottomLeft, buttonsRegionSize, Anchor.TopLeft);
+				(Vector2 size, Vector2 centre) layoutCancel = UILayoutHelper.HorizontalLayout(2, 0, buttonsRegionCentre, buttonsRegionSize);
+				(Vector2 size, Vector2 centre) layoutConfirm = UILayoutHelper.HorizontalLayout(2, 1, buttonsRegionCentre, buttonsRegionSize);
+
+				bool cancelButton = UI.Button("CANCEL", theme.MainMenuButtonTheme, layoutCancel.centre, new Vector2(layoutCancel.size.x, 0), true, false, true);
+				bool confirmButton = UI.Button("DOWNLOAD", theme.MainMenuButtonTheme, layoutConfirm.centre, new Vector2(layoutConfirm.size.x, 0), validCode, false, true);
+
+				if (cancelButton || KeyboardShortcuts.CancelShortcutTriggered)
+				{
+					state.ClearText();
+					activePopup = PopupKind.None;
+				}
+
+				if (confirmButton || (validCode && KeyboardShortcuts.ConfirmShortcutTriggered))
+				{
+					string code = state.text;
+					state.ClearText();
+					activePopup = PopupKind.None;
+					StartGetFromCode(code);
 				}
 
 				UI.ModifyPanel(panelID, UI.GetCurrentBoundsScope().Centre, UI.GetCurrentBoundsScope().Size + Vector2.one * 2, ColHelper.MakeCol255(37, 37, 43));
@@ -545,6 +678,91 @@ namespace DLS.Graphics
 			}
 		}
 
+		static void DrawAccountScreen()
+		{
+			DrawSettings.UIThemeDLS theme = DrawSettings.ActiveUITheme;
+			ButtonTheme buttonTheme = theme.MainMenuButtonTheme;
+			InputFieldTheme inputTheme = theme.ChipNameInputField;
+
+			float fieldWidth = 28;
+			Vector2 padding = new(2, 2);
+			Vector2 charSize = UI.CalculateTextSize("M", inputTheme.fontSize, inputTheme.font);
+			Vector2 fieldSize = new Vector2(fieldWidth, charSize.y) + padding * 2;
+
+			if (DLS.SaveSystem.SupabaseAuth.IsLoggedIn)
+			{
+				// Logged-in view
+				UI.DrawText($"Signed in as:", buttonTheme.font, buttonTheme.fontSize, UI.Centre + Vector2.up * 4, Anchor.Centre, new Color(1, 1, 1, 0.6f));
+				UI.DrawText(DLS.SaveSystem.SupabaseAuth.UserEmail, buttonTheme.font, buttonTheme.fontSize * 1.1f, UI.Centre + Vector2.up * 1.5f, Anchor.Centre, Color.white);
+
+				Vector2 btnPos = UI.Centre + Vector2.down * 3;
+				if (UI.Button("SIGN OUT", buttonTheme, btnPos, new Vector2(fieldWidth, 0), !authOpInProgress, false, true))
+				{
+					DLS.SaveSystem.SupabaseAuth.SignOut();
+					authStatusMessage = "Signed out.";
+				}
+			}
+			else
+			{
+				// Sign-in / sign-up view
+				Vector2 emailPos = UI.Centre + Vector2.up * 5;
+				Vector2 passPos = UI.Centre + Vector2.up * 1;
+
+				UI.DrawText("Email", inputTheme.font, inputTheme.fontSize, emailPos + Vector2.up * (fieldSize.y * 0.5f + 0.5f), Anchor.Centre, new Color(1, 1, 1, 0.6f));
+				InputFieldState emailState = UI.InputField(ID_AuthEmailInput, inputTheme, emailPos, fieldSize, "", Anchor.Centre, padding.x, s => s.Length <= 100, false);
+
+				UI.DrawText("Password", inputTheme.font, inputTheme.fontSize, passPos + Vector2.up * (fieldSize.y * 0.5f + 0.5f), Anchor.Centre, new Color(1, 1, 1, 0.6f));
+				InputFieldState passState = UI.InputField(ID_AuthPasswordInput, inputTheme, passPos, fieldSize, "", Anchor.Centre, padding.x, s => s.Length <= 100, false);
+
+				bool canSubmit = !authOpInProgress && !string.IsNullOrWhiteSpace(emailState.text) && passState.text.Length >= 6;
+
+				Vector2 btnRegionCentre = UI.Centre + Vector2.down * 3.5f;
+				Vector2 btnRegionSize = new(fieldWidth, 5);
+				(Vector2 size, Vector2 centre) layoutSignIn = UILayoutHelper.HorizontalLayout(2, 0, btnRegionCentre, btnRegionSize);
+				(Vector2 size, Vector2 centre) layoutSignUp = UILayoutHelper.HorizontalLayout(2, 1, btnRegionCentre, btnRegionSize);
+
+				bool signInClicked = UI.Button("SIGN IN", buttonTheme, layoutSignIn.centre, new Vector2(layoutSignIn.size.x, 0), canSubmit, false, true);
+				bool signUpClicked = UI.Button("SIGN UP", buttonTheme, layoutSignUp.centre, new Vector2(layoutSignUp.size.x, 0), canSubmit, false, true);
+
+				if (signInClicked) StartSignIn(emailState.text, passState.text);
+				if (signUpClicked) StartSignUp(emailState.text, passState.text);
+
+				if (!string.IsNullOrEmpty(authStatusMessage))
+				{
+					Color msgCol = authStatusMessage.StartsWith("Error") ? Color.red : Color.green;
+					UI.DrawText(authStatusMessage, buttonTheme.font, buttonTheme.fontSize, UI.Centre + Vector2.down * 7, Anchor.Centre, msgCol);
+				}
+			}
+
+			if (!DLS.SaveSystem.SupabaseAuth.IsLoggedIn && !string.IsNullOrEmpty(authStatusMessage) && DLS.SaveSystem.SupabaseAuth.IsLoggedIn)
+				authStatusMessage = null;
+
+			Vector2 backPos = UI.CentreBottom + Vector2.up * 22;
+			if (UI.Button("BACK", buttonTheme, backPos, Vector2.zero, !authOpInProgress, true, true))
+			{
+				authStatusMessage = null;
+				BackToMain();
+			}
+		}
+
+		static async void StartSignIn(string email, string password)
+		{
+			authOpInProgress = true;
+			authStatusMessage = "Signing in...";
+			var (success, error) = await DLS.SaveSystem.SupabaseAuth.SignIn(email, password);
+			authStatusMessage = success ? null : "Error: " + error;
+			authOpInProgress = false;
+		}
+
+		static async void StartSignUp(string email, string password)
+		{
+			authOpInProgress = true;
+			authStatusMessage = "Creating account...";
+			var (success, error) = await DLS.SaveSystem.SupabaseAuth.SignUp(email, password);
+			authStatusMessage = success ? "Account created! Check your email to confirm, then sign in." : "Error: " + error;
+			authOpInProgress = false;
+		}
+
 		static void DrawAboutScreen()
 		{
 			ButtonTheme theme = DrawSettings.ActiveUITheme.MainMenuButtonTheme;
@@ -568,6 +786,12 @@ namespace DLS.Graphics
 			Vector2 datePos = UI.PrevBounds.CentreRight + Vector2.left * pad;
 			UI.DrawText(authorString, theme.FontRegular, theme.FontSizeRegular, versionPos, Anchor.TextCentreLeft, col);
 			UI.DrawText(versionString, theme.FontRegular, theme.FontSizeRegular, datePos, Anchor.TextCentreRight, col);
+
+			if (DLS.SaveSystem.SupabaseAuth.IsLoggedIn)
+			{
+				Vector2 userPos = UI.PrevBounds.Centre;
+				UI.DrawText("Signed in: " + DLS.SaveSystem.SupabaseAuth.UserEmail, theme.FontRegular, theme.FontSizeRegular, userPos, Anchor.Centre, col);
+			}
 		}
 
 		static string ResolutionToString(Vector2Int r) => $"{r.x} x {r.y}";
@@ -582,6 +806,7 @@ namespace DLS.Graphics
 			Main,
 			LoadProject,
 			Settings,
+			Account,
 			About
 		}
 
@@ -592,7 +817,8 @@ namespace DLS.Graphics
 			NamePopup_RenameProject,
 			NamePopup_DuplicateProject,
 			NamePopup_NewProject,
-			Notification
+			Notification,
+			ShareCodeInput
 		}
 	}
 }
