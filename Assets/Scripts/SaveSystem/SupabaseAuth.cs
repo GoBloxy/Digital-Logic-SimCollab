@@ -50,8 +50,11 @@ namespace DLS.SaveSystem
 			PlayerPrefs.Save();
 		}
 
+		public const string ConfirmEmailSentinel = "CONFIRM_EMAIL";
+
 		static async Task<(bool success, string error)> SendAuthRequest(string url, string body)
 		{
+			bool isSignUp = url.Contains("/signup");
 			byte[] bytes = Encoding.UTF8.GetBytes(body);
 			using UnityWebRequest req = new(url, "POST");
 			req.uploadHandler = new UploadHandlerRaw(bytes);
@@ -69,7 +72,7 @@ namespace DLS.SaveSystem
 
 			AuthResponse response = JsonUtility.FromJson<AuthResponse>(responseText);
 			if (response?.access_token == null)
-				return (false, "No token in response.");
+				return (false, isSignUp ? ConfirmEmailSentinel : "Sign in failed. Check your credentials.");
 
 			AccessToken = response.access_token;
 			UserId = response.user?.id;

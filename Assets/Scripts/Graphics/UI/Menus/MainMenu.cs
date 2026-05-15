@@ -684,61 +684,58 @@ namespace DLS.Graphics
 			ButtonTheme buttonTheme = theme.MainMenuButtonTheme;
 			InputFieldTheme inputTheme = theme.ChipNameInputField;
 
-			float fieldWidth = 28;
+			const float fieldWidth = 34;
 			Vector2 padding = new(2, 2);
 			Vector2 charSize = UI.CalculateTextSize("M", inputTheme.fontSize, inputTheme.font);
-			Vector2 fieldSize = new Vector2(fieldWidth, charSize.y) + padding * 2;
+			Vector2 fieldSize = new Vector2(fieldWidth, charSize.y + padding.y * 2);
+			float labelGap = fieldSize.y * 0.5f + 1f;
+			const float rowGap = 9f;
 
 			if (DLS.SaveSystem.SupabaseAuth.IsLoggedIn)
 			{
-				// Logged-in view
-				UI.DrawText($"Signed in as:", buttonTheme.font, buttonTheme.fontSize, UI.Centre + Vector2.up * 4, Anchor.Centre, new Color(1, 1, 1, 0.6f));
-				UI.DrawText(DLS.SaveSystem.SupabaseAuth.UserEmail, buttonTheme.font, buttonTheme.fontSize * 1.1f, UI.Centre + Vector2.up * 1.5f, Anchor.Centre, Color.white);
+				UI.DrawText("SIGNED IN AS", buttonTheme.font, buttonTheme.fontSize, UI.Centre + Vector2.up * 5, Anchor.Centre, new Color(1, 1, 1, 0.5f));
+				UI.DrawText(DLS.SaveSystem.SupabaseAuth.UserEmail, buttonTheme.font, buttonTheme.fontSize, UI.Centre + Vector2.up * 2, Anchor.Centre, Color.white);
 
-				Vector2 btnPos = UI.Centre + Vector2.down * 3;
-				if (UI.Button("SIGN OUT", buttonTheme, btnPos, new Vector2(fieldWidth, 0), !authOpInProgress, false, true))
+				if (UI.Button("SIGN OUT", buttonTheme, UI.Centre + Vector2.down * 2, new Vector2(fieldWidth * 0.5f, 0), !authOpInProgress, false, true))
 				{
 					DLS.SaveSystem.SupabaseAuth.SignOut();
-					authStatusMessage = "Signed out.";
+					authStatusMessage = null;
 				}
 			}
 			else
 			{
-				// Sign-in / sign-up view
-				Vector2 emailPos = UI.Centre + Vector2.up * 5;
-				Vector2 passPos = UI.Centre + Vector2.up * 1;
+				Vector2 emailPos = UI.Centre + Vector2.up * rowGap * 0.5f;
+				Vector2 passPos  = UI.Centre + Vector2.down * rowGap * 0.5f;
 
-				UI.DrawText("Email", inputTheme.font, inputTheme.fontSize, emailPos + Vector2.up * (fieldSize.y * 0.5f + 0.5f), Anchor.Centre, new Color(1, 1, 1, 0.6f));
+				// Email row
+				UI.DrawText("EMAIL", inputTheme.font, inputTheme.fontSize, emailPos + Vector2.up * labelGap, Anchor.Centre, new Color(1, 1, 1, 0.55f));
 				InputFieldState emailState = UI.InputField(ID_AuthEmailInput, inputTheme, emailPos, fieldSize, "", Anchor.Centre, padding.x, s => s.Length <= 100, false);
 
-				UI.DrawText("Password", inputTheme.font, inputTheme.fontSize, passPos + Vector2.up * (fieldSize.y * 0.5f + 0.5f), Anchor.Centre, new Color(1, 1, 1, 0.6f));
+				// Password row
+				UI.DrawText("PASSWORD", inputTheme.font, inputTheme.fontSize, passPos + Vector2.up * labelGap, Anchor.Centre, new Color(1, 1, 1, 0.55f));
 				InputFieldState passState = UI.InputField(ID_AuthPasswordInput, inputTheme, passPos, fieldSize, "", Anchor.Centre, padding.x, s => s.Length <= 100, false);
 
 				bool canSubmit = !authOpInProgress && !string.IsNullOrWhiteSpace(emailState.text) && passState.text.Length >= 6;
 
-				Vector2 btnRegionCentre = UI.Centre + Vector2.down * 3.5f;
+				Vector2 btnCentre = UI.Centre + Vector2.down * (rowGap + 3f);
 				Vector2 btnRegionSize = new(fieldWidth, 5);
-				(Vector2 size, Vector2 centre) layoutSignIn = UILayoutHelper.HorizontalLayout(2, 0, btnRegionCentre, btnRegionSize);
-				(Vector2 size, Vector2 centre) layoutSignUp = UILayoutHelper.HorizontalLayout(2, 1, btnRegionCentre, btnRegionSize);
+				(Vector2 size, Vector2 centre) signInLayout = UILayoutHelper.HorizontalLayout(2, 0, btnCentre, btnRegionSize);
+				(Vector2 size, Vector2 centre) signUpLayout = UILayoutHelper.HorizontalLayout(2, 1, btnCentre, btnRegionSize);
 
-				bool signInClicked = UI.Button("SIGN IN", buttonTheme, layoutSignIn.centre, new Vector2(layoutSignIn.size.x, 0), canSubmit, false, true);
-				bool signUpClicked = UI.Button("SIGN UP", buttonTheme, layoutSignUp.centre, new Vector2(layoutSignUp.size.x, 0), canSubmit, false, true);
-
-				if (signInClicked) StartSignIn(emailState.text, passState.text);
-				if (signUpClicked) StartSignUp(emailState.text, passState.text);
+				if (UI.Button("SIGN IN", buttonTheme, signInLayout.centre, new Vector2(signInLayout.size.x, 0), canSubmit, false, true))
+					StartSignIn(emailState.text, passState.text);
+				if (UI.Button("SIGN UP", buttonTheme, signUpLayout.centre, new Vector2(signUpLayout.size.x, 0), canSubmit, false, true))
+					StartSignUp(emailState.text, passState.text);
 
 				if (!string.IsNullOrEmpty(authStatusMessage))
 				{
-					Color msgCol = authStatusMessage.StartsWith("Error") ? Color.red : Color.green;
-					UI.DrawText(authStatusMessage, buttonTheme.font, buttonTheme.fontSize, UI.Centre + Vector2.down * 7, Anchor.Centre, msgCol);
+					bool isError = authStatusMessage.StartsWith("Error");
+					Color msgCol = isError ? Color.red : new Color(0.4f, 1f, 0.4f);
+					UI.DrawText(authStatusMessage, buttonTheme.font, buttonTheme.fontSize, btnCentre + Vector2.down * 5, Anchor.Centre, msgCol);
 				}
 			}
 
-			if (!DLS.SaveSystem.SupabaseAuth.IsLoggedIn && !string.IsNullOrEmpty(authStatusMessage) && DLS.SaveSystem.SupabaseAuth.IsLoggedIn)
-				authStatusMessage = null;
-
-			Vector2 backPos = UI.CentreBottom + Vector2.up * 22;
-			if (UI.Button("BACK", buttonTheme, backPos, Vector2.zero, !authOpInProgress, true, true))
+			if (UI.Button("BACK", buttonTheme, UI.CentreBottom + Vector2.up * 8, Vector2.zero, !authOpInProgress, true, true))
 			{
 				authStatusMessage = null;
 				BackToMain();
@@ -759,7 +756,12 @@ namespace DLS.Graphics
 			authOpInProgress = true;
 			authStatusMessage = "Creating account...";
 			var (success, error) = await DLS.SaveSystem.SupabaseAuth.SignUp(email, password);
-			authStatusMessage = success ? "Account created! Check your email to confirm, then sign in." : "Error: " + error;
+			if (success)
+				authStatusMessage = null;
+			else if (error == DLS.SaveSystem.SupabaseAuth.ConfirmEmailSentinel)
+				authStatusMessage = "Account created! Check your email to confirm, then sign in.";
+			else
+				authStatusMessage = "Error: " + error;
 			authOpInProgress = false;
 		}
 
