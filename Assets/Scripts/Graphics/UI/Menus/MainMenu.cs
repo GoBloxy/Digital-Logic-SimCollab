@@ -100,8 +100,9 @@ namespace DLS.Graphics
 		static string notificationMessage;
 		static string notificationCopyText; // when set, a Copy button appears in the notification popup
 
-		static readonly string authorString = "Created by: Sebastian Lague";
+		static readonly string authorString = "Created by: Sebastian Lague  |  Collab fork by 0xSpy";
 		static readonly string versionString = $"Version: {Main.DLSVersion} ({Main.LastUpdatedString})";
+		const string forkNoticeString = "UNOFFICIAL FORK — COLLABORATION EDITION";
 		static string SelectedProjectName => allProjectDescriptions[selectedProjectIndex].ProjectName;
 
 		static string FormatButtonString(string s) => capitalize ? s.ToUpper() : s;
@@ -124,6 +125,7 @@ namespace DLS.Graphics
 
 			UI.DrawText(title, FontType.Born2bSporty, titleFontSize, UI.Centre + Vector2.up * (titleHeight + shaddowOffset), Anchor.CentreTop, shadowCol);
 			UI.DrawText(title, FontType.Born2bSporty, titleFontSize, UI.Centre + Vector2.up * titleHeight, Anchor.CentreTop, Color.white);
+			UI.DrawText(forkNoticeString, FontType.Born2bSporty, 3f, UI.Centre + Vector2.up * (titleHeight - titleFontSize - 1.5f), Anchor.CentreTop, new Color(0.6f, 0.75f, 1f, 0.8f));
 			DrawVersionInfo();
 
 			switch (activeMenuScreen)
@@ -902,17 +904,26 @@ namespace DLS.Graphics
 			UI.DrawPanel(UI.BottomLeft, new Vector2(UI.Width, 4), ColHelper.MakeCol255(37, 37, 43), Anchor.BottomLeft);
 
 			float pad = 1;
-			Color col = new(1, 1, 1, 0.5f);
+			Color col     = new(1, 1, 1, 0.5f);
+			Color loggedCol = new(0.5f, 0.9f, 0.5f, 0.8f);
 
-			Vector2 versionPos = UI.PrevBounds.CentreLeft + Vector2.right * pad;
-			Vector2 datePos = UI.PrevBounds.CentreRight + Vector2.left * pad;
-			UI.DrawText(authorString, theme.FontRegular, theme.FontSizeRegular, versionPos, Anchor.TextCentreLeft, col);
-			UI.DrawText(versionString, theme.FontRegular, theme.FontSizeRegular, datePos, Anchor.TextCentreRight, col);
+			Vector2 leftPos   = UI.PrevBounds.CentreLeft  + Vector2.right * pad;
+			Vector2 rightPos  = UI.PrevBounds.CentreRight + Vector2.left  * pad;
+			Vector2 centrePos = UI.PrevBounds.Centre;
+
+			// Left: always show credit
+			UI.DrawText("Created by: Sebastian Lague  |  Fork by 0xSpy", theme.FontRegular, theme.FontSizeRegular, leftPos, Anchor.TextCentreLeft, col);
 
 			if (DLS.SaveSystem.SupabaseAuth.IsLoggedIn)
 			{
-				Vector2 userPos = UI.PrevBounds.Centre;
-				UI.DrawText("Signed in: " + DLS.SaveSystem.SupabaseAuth.UserEmail, theme.FontRegular, theme.FontSizeRegular, userPos, Anchor.Centre, col);
+				// Centre: signed-in email; Right: version
+				UI.DrawText("● " + DLS.SaveSystem.SupabaseAuth.UserEmail, theme.FontRegular, theme.FontSizeRegular, centrePos, Anchor.Centre, loggedCol);
+				UI.DrawText(versionString, theme.FontRegular, theme.FontSizeRegular, rightPos, Anchor.TextCentreRight, col);
+			}
+			else
+			{
+				// Right: version only
+				UI.DrawText(versionString, theme.FontRegular, theme.FontSizeRegular, rightPos, Anchor.TextCentreRight, col);
 			}
 		}
 
