@@ -48,7 +48,9 @@ namespace DLS.Graphics
 			FormatButtonString("Delete"),
 			FormatButtonString("Duplicate"),
 			FormatButtonString("Rename"),
-			FormatButtonString("Open")
+			FormatButtonString("Open"),
+			FormatButtonString("Export"),
+			FormatButtonString("Import")
 		};
 
 		static readonly Vector2Int[] Resolutions =
@@ -71,6 +73,7 @@ namespace DLS.Graphics
 		static (bool compatible, string message)[] projectCompatibilities;
 
 		static int selectedProjectIndex;
+		static string notificationMessage;
 
 		static readonly string authorString = "Created by: Sebastian Lague";
 		static readonly string versionString = $"Version: {Main.DLSVersion} ({Main.LastUpdatedString})";
@@ -128,6 +131,9 @@ namespace DLS.Graphics
 				case PopupKind.NamePopup_NewProject:
 					DrawNamePopup();
 					break;
+				case PopupKind.Notification:
+					DrawNotificationPopup();
+					break;
 			}
 		}
 
@@ -181,6 +187,8 @@ namespace DLS.Graphics
 			const int duplicateButtonIndex = 2;
 			const int renameButtonIndex = 3;
 			const int openButtonIndex = 4;
+			const int exportButtonIndex = 5;
+			const int importButtonIndex = 6;
 			DrawSettings.UIThemeDLS theme = DrawSettings.ActiveUITheme;
 
 			Vector2 pos = UI.Centre + new Vector2(0, -1);
@@ -194,7 +202,11 @@ namespace DLS.Graphics
 
 			for (int i = 0; i < openProjectButtonStates.Length; i++)
 			{
-				bool buttonEnabled = activePopup == PopupKind.None && (compatibleProject || i == backButtonIndex || (i == deleteButtonIndex && projectSelected));
+				bool buttonEnabled = activePopup == PopupKind.None && (
+					compatibleProject ||
+					i == backButtonIndex ||
+					(i == deleteButtonIndex && projectSelected) ||
+					i == importButtonIndex);
 				openProjectButtonStates[i] = buttonEnabled;
 			}
 
@@ -213,6 +225,82 @@ namespace DLS.Graphics
 			else if (buttonIndex == duplicateButtonIndex) activePopup = PopupKind.NamePopup_DuplicateProject;
 			else if (buttonIndex == renameButtonIndex) activePopup = PopupKind.NamePopup_RenameProject;
 			else if (buttonIndex == openButtonIndex) Main.CreateOrLoadProject(SelectedProjectName, string.Empty);
+			else if (buttonIndex == exportButtonIndex) HandleExportProject();
+			else if (buttonIndex == importButtonIndex) HandleImportProject();
+		}
+
+		static void HandleExportProject()
+		{
+			try
+			{
+				string exportPath = NativeFileDialog.SaveFileDialog(
+					"Export Project As",
+					ProjectExporter.ExportFilterName,
+					ProjectExporter.ExportExtension,
+					SelectedProjectName + ProjectExporter.ExportExtension);
+
+				if (exportPath == null) return; // user cancelled
+
+				ProjectExporter.ExportProject(SelectedProjectName, System.IO.Path.GetDirectoryName(exportPath));
+				ShowNotification($"Exported to:\n{exportPath}");
+			}
+			catch (System.Exception e)
+			{
+				ShowNotification("Export failed: " + e.Message);
+			}
+		}
+
+		static void HandleImportProject()
+		{
+			string filePath = NativeFileDialog.OpenFileDialog(
+				"Import Project",
+				ProjectExporter.ExportFilterName,
+				ProjectExporter.ExportExtension);
+
+			if (filePath == null) return; // user cancelled
+
+			var (result, projectName, errorMessage) = ProjectImporter.ImportProject(filePath);
+
+			if (result == ProjectImporter.ImportResult.Success)
+			{
+				RefreshLoadedProjects();
+				ShowNotification($"Imported '{projectName}' successfully.");
+			}
+			else
+			{
+				ShowNotification("Import failed: " + errorMessage);
+			}
+		}
+
+		static void ShowNotification(string message)
+		{
+			notificationMessage = message;
+			activePopup = PopupKind.Notification;
+		}
+
+		static void DrawNotificationPopup()
+		{
+			DrawSettings.UIThemeDLS theme = DrawSettings.ActiveUITheme;
+
+			UI.StartNewLayer();
+			UI.DrawFullscreenPanel(theme.MenuBackgroundOverlayCol);
+
+			using (UI.BeginBoundsScope(true))
+			{
+				Draw.ID panelID = UI.ReservePanel();
+
+				ButtonTheme buttonTheme = theme.MainMenuButtonTheme;
+				UI.DrawText(notificationMessage, buttonTheme.font, buttonTheme.fontSize, UI.Centre, Anchor.Centre, Color.white);
+
+				Vector2 buttonPos = UI.PrevBounds.BottomLeft + Vector2.down * DrawSettings.VerticalButtonSpacing;
+				if (UI.Button("OK", buttonTheme, buttonPos + Vector2.right * UI.PrevBounds.Width * 0.5f, new Vector2(UI.PrevBounds.Width * 0.3f, 0), true, false, true) ||
+				    KeyboardShortcuts.CancelShortcutTriggered || KeyboardShortcuts.ConfirmShortcutTriggered)
+				{
+					activePopup = PopupKind.None;
+				}
+
+				UI.ModifyPanel(panelID, UI.GetCurrentBoundsScope().Centre, UI.GetCurrentBoundsScope().Size + Vector2.one * 2, ColHelper.MakeCol255(37, 37, 43));
+			}
 		}
 
 		static bool ProjectNameValidator(string inputString) => inputString.Length <= 20 && !SaveUtils.NameContainsForbiddenChar(inputString);
@@ -503,7 +591,8 @@ namespace DLS.Graphics
 			DeleteConfirmation,
 			NamePopup_RenameProject,
 			NamePopup_DuplicateProject,
-			NamePopup_NewProject
+			NamePopup_NewProject,
+			Notification
 		}
 	}
 }
