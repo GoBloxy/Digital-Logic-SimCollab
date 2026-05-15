@@ -684,7 +684,7 @@ namespace DLS.Graphics
 			ButtonTheme buttonTheme = theme.MainMenuButtonTheme;
 			InputFieldTheme inputTheme = theme.ChipNameInputField;
 
-			const float fieldWidth = 34;
+			const float fieldWidth = 44;
 			Vector2 padding = new(2, 2);
 			Vector2 charSize = UI.CalculateTextSize("M", inputTheme.fontSize, inputTheme.font);
 			Vector2 fieldSize = new Vector2(fieldWidth, charSize.y + padding.y * 2);
@@ -713,7 +713,7 @@ namespace DLS.Graphics
 
 				// Password row
 				UI.DrawText("PASSWORD", inputTheme.font, inputTheme.fontSize, passPos + Vector2.up * labelGap, Anchor.Centre, new Color(1, 1, 1, 0.55f));
-				InputFieldState passState = UI.InputField(ID_AuthPasswordInput, inputTheme, passPos, fieldSize, "", Anchor.Centre, padding.x, s => s.Length <= 100, false);
+				InputFieldState passState = UI.InputField(ID_AuthPasswordInput, inputTheme, passPos, fieldSize, "", Anchor.Centre, padding.x, s => s.Length <= 100, false, maskChar: '*');
 
 				bool canSubmit = !authOpInProgress && !string.IsNullOrWhiteSpace(emailState.text) && passState.text.Length >= 6;
 
@@ -747,7 +747,12 @@ namespace DLS.Graphics
 			authOpInProgress = true;
 			authStatusMessage = "Signing in...";
 			var (success, error) = await DLS.SaveSystem.SupabaseAuth.SignIn(email, password);
-			authStatusMessage = success ? null : "Error: " + error;
+			if (success)
+				authStatusMessage = null;
+			else if (error != null && error.ToLower().Contains("not confirmed"))
+				authStatusMessage = "Error: Email not confirmed. Check your inbox or disable confirmation in Supabase dashboard.";
+			else
+				authStatusMessage = "Error: " + error;
 			authOpInProgress = false;
 		}
 

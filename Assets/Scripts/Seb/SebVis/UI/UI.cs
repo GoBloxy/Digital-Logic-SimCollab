@@ -349,7 +349,7 @@ namespace Seb.Vis.UI
 
 		public static Vector2 CalculateTextSize(ReadOnlySpan<char> text, float fontSize, FontType font) => Draw.CalculateTextBoundsSize(text, fontSize, font);
 
-		public static InputFieldState InputField(UIHandle id, InputFieldTheme theme, Vector2 pos, Vector2 size, string defaultText, Anchor anchor, float textPad, Func<string, bool> validation = null, bool forceFocus = false)
+		public static InputFieldState InputField(UIHandle id, InputFieldTheme theme, Vector2 pos, Vector2 size, string defaultText, Anchor anchor, float textPad, Func<string, bool> validation = null, bool forceFocus = false, char maskChar = '\0')
 		{
 			InputFieldState state = GetInputFieldState(id);
 
@@ -461,7 +461,7 @@ namespace Seb.Vis.UI
 				{
 					float fontSize_ss = theme.fontSize * scale;
 					bool showDefaultText = string.IsNullOrEmpty(state.text) || !Application.isPlaying;
-					string displayString = showDefaultText ? defaultText : state.text;
+					string displayString = showDefaultText ? defaultText : (maskChar != '\0' ? new string(maskChar, state.text.Length) : state.text);
 
 					Color textCol = showDefaultText ? theme.defaultTextCol : theme.textCol;
 					Draw.Text(theme.font, displayString, fontSize_ss, textCentreLeft_ss, Anchor.TextCentreLeft, textCol);
