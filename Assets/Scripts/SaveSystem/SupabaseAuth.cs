@@ -8,8 +8,8 @@ namespace DLS.SaveSystem
 {
 	public static class SupabaseAuth
 	{
-		public const string SupabaseUrl = "https://bodbbodwbfsxjzxfnxon.supabase.co";
-		public const string AnonKey = "sb_publishable_wCxYTqeD3Z2Hob_NlELBcw_Gxtr9sGv";
+			public static readonly string SupabaseUrl = Env.Get("SUPABASE_URL") ?? "https://bodbbodwbfsxjzxfnxon.supabase.co";
+			public static readonly string AnonKey = Env.Get("SUPABASE_ANON_KEY") ?? "sb_publishable_wCxYTqeD3Z2Hob_NlELBcw_Gxtr9sGv";
 
 		const string PrefAccessToken = "DLS_AccessToken";
 		const string PrefUserId = "DLS_UserId";
